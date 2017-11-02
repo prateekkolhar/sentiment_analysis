@@ -323,7 +323,7 @@ def train_bi_lstm(train_exs, dev_exs, test_exs, word_vectors, file_desc, num_epo
             write_sentiment_examples(test_exs_predicted, "./output/"+file_desc+"_e"+str(i)+"_a"+str(round(accuracy,3))+".output.txt", word_vectors.word_indexer)
         stop = timeit.default_timer()
         print "Total Time:" + str(stop-start)
-
+    return test_exs_predicted
 
         
 def train_lstm(train_exs, dev_exs, test_exs, word_vectors, num_epochs=-1):
