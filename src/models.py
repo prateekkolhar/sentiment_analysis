@@ -19,7 +19,7 @@ def pad_to_length(np_arr, length):
 # predictions on the *blind* test_exs (all test_exs have label 0 as a dummy placeholder value). Returned predictions
 # should be SentimentExample objects with predicted labels and the same sentences as input (but these won't be
 # read for evaluation anyway)
-def train_ffnn(train_exs, dev_exs, test_exs, word_vectors, num_epochs=-1):
+def train_ffnn(train_exs, dev_exs, test_exs, word_vectors, file_desc, num_epochs=-1):
     # 59 is the max sentence length in the corpus, so let's set this to 60
     
     seq_max_len = 60
@@ -38,18 +38,23 @@ def train_ffnn(train_exs, dev_exs, test_exs, word_vectors, num_epochs=-1):
         ys = np.array([ex.label for ex in examples])
 #         Can also send the seq_lens, labels_arr
         
-        xs = np.zeros([len(examples),word_vectors.vectors.shape[1]])
+        xs_mean = np.zeros([len(examples),word_vectors.vectors.shape[1]])
+        xs_max = np.zeros([len(examples),word_vectors.vectors.shape[1]])
         for i in xrange(len(examples)):
             word_idxs = np.array(examples[i].indexed_words)
             all_words = np.ones([len(word_idxs), word_vectors.vectors.shape[1]])*-1
             for j in xrange(len(word_idxs)):
                 all_words[j] = word_vectors.get_embedding_from_idx(int(word_idxs[j]))
-            xs[i]=all_words.mean(0) 
-    
+            xs_mean[i]=all_words.mean(0) 
+            xs_max[i]=all_words.max(0) 
+        # xs = np.concatenate((xs_mean,xs_max),1)
+        xs = xs_max
+        print xs.shape
         return(xs,ys)
 
     (train_xs,train_ys) = generate_feature_mat(train_exs)
     (dev_xs,dev_ys) = generate_feature_mat(dev_exs)
+    (test_xs,test_ys) = generate_feature_mat(test_exs)
     
     print train_xs.shape
     print type(train_xs[0][0])
@@ -89,7 +94,7 @@ def train_ffnn(train_exs, dev_exs, test_exs, word_vectors, num_epochs=-1):
     learning_rate_decay_factor = .999995
     global_step = tf.contrib.framework.get_or_create_global_step()
     # Smaller learning rates are sometimes necessary for larger networks
-    initial_learning_rate = 0.0005
+    initial_learning_rate = 0.005
     # Decay the learning rate exponentially based on the number of steps.
     lr = tf.train.exponential_decay(initial_learning_rate,
                                     global_step,
@@ -140,7 +145,7 @@ def train_ffnn(train_exs, dev_exs, test_exs, word_vectors, num_epochs=-1):
                 loss_this_iter += loss_this_instance
             print "Loss for iteration " + repr(i) + ": " + repr(loss_this_iter)
             
-            def evaluate_examples(xs, ys):
+            def evaluate_examples(xs, ys, print_acc, test_exs=-1):
                 correct = 0
                 for ex_idx in xrange(0, len(xs)):
                     [probs_this_instance, pred_this_instance, z_this_instance] = sess.run([probs, one_best, z],
@@ -149,9 +154,24 @@ def train_ffnn(train_exs, dev_exs, test_exs, word_vectors, num_epochs=-1):
                                                                                                     ffnn_keep_prob2 : [1.0]})
                     if (ys[ex_idx] == pred_this_instance):
                         correct += 1
-                print repr(correct) + "/" + repr(len(ys)) + " correct after training"
-                print repr(correct*1.0/len(ys)) + " correct after training"
-            evaluate_examples(dev_xs,dev_ys)
+                    
+                    
+                    if test_exs!=-1:
+                        test_exs[ex_idx].label=pred_this_instance
+                accuracy = correct*1.0/len(ys)
+                if print_acc:
+                    print repr(correct) + "/" + repr(len(ys)) + " correct after training"
+                    print repr(accuracy) + " correct after training"
+                
+                
+                return test_exs, accuracy
+            _,accuracy = evaluate_examples(dev_xs,dev_ys,  True)
+            test_exs_predicted,_ = evaluate_examples(test_xs,test_ys, False, test_exs)
+            
+            write_sentiment_examples(test_exs_predicted, "./"+file_desc+"_e"+str(i)+"_a"+str(round(accuracy,3))+".output.txt", word_vectors.word_indexer)
+        stop = timeit.default_timer()
+        print "Total Time:" + str(stop-start)
+    return test_exs_predicted
 
 
 def train_bi_lstm(train_exs, dev_exs, test_exs, word_vectors, file_desc, num_epochs=-1):
@@ -295,7 +315,7 @@ def train_bi_lstm(train_exs, dev_exs, test_exs, word_vectors, file_desc, num_epo
                 loss_this_iter += loss_this_instance
             print "Loss for iteration " + repr(i) + ": " + repr(loss_this_iter)
             
-            def evaluate_examples(xs, ys, seq_lens, print_acc, test_exs=-1, ):
+            def evaluate_examples(xs, ys, seq_lens, print_acc, test_exs=-1 ):
                 correct = 0
                 pred=np.zeros(len(ys))
                 for ex_idx in xrange(0, len(xs)):
@@ -320,13 +340,13 @@ def train_bi_lstm(train_exs, dev_exs, test_exs, word_vectors, file_desc, num_epo
             _,accuracy = evaluate_examples(dev_xs,dev_ys, dev_seq_lens, True)
             test_exs_predicted,_ = evaluate_examples(test_xs,test_ys, test_seq_lens, False, test_exs)
             
-            write_sentiment_examples(test_exs_predicted, "./output/"+file_desc+"_e"+str(i)+"_a"+str(round(accuracy,3))+".output.txt", word_vectors.word_indexer)
+            write_sentiment_examples(test_exs_predicted, "./"+file_desc+"_e"+str(i)+"_a"+str(round(accuracy,3))+".output.txt", word_vectors.word_indexer)
         stop = timeit.default_timer()
         print "Total Time:" + str(stop-start)
     return test_exs_predicted
 
         
-def train_lstm(train_exs, dev_exs, test_exs, word_vectors, num_epochs=-1):
+def train_lstm(train_exs, dev_exs, test_exs, word_vectors,  file_desc, num_epochs=-1):
     
     # 59 is the max sentence length in the corpus, so let's set this to 60
     
@@ -348,6 +368,7 @@ def train_lstm(train_exs, dev_exs, test_exs, word_vectors, num_epochs=-1):
 
     (train_xs,train_ys, train_seq_lens) = generate_feature_mat(train_exs)
     (dev_xs,dev_ys,dev_seq_lens) = generate_feature_mat(dev_exs)
+    (test_xs,test_ys,test_seq_lens) = generate_feature_mat(test_exs)
     
     print train_xs.shape
     print type(train_xs[0][0])
@@ -377,7 +398,7 @@ def train_lstm(train_exs, dev_exs, test_exs, word_vectors, num_epochs=-1):
     
 #     V = tf.get_variable("V", [embedding_size, feat_vec_size], initializer=tf.contrib.layers.xavier_initializer(seed=0), dtype=tf.float64)
     
-    z = value[0][seq_len[0]-1]
+    z = tf.reduce_mean(value[0][0][:seq_len[0]] ,0) 
     W = tf.get_variable("W", [num_classes, lstmUnits], dtype=tf.float64)
     probs = tf.nn.softmax(tf.tensordot(W, z, 1))
     
@@ -456,8 +477,21 @@ def train_lstm(train_exs, dev_exs, test_exs, word_vectors, num_epochs=-1):
                                                                                                     keep_prob: [1.0]})
                     if (ys[ex_idx] == pred_this_instance):
                         correct += 1
-                print repr(correct) + "/" + repr(len(ys)) + " correct after training"
-                print repr(correct*1.0/len(ys)) + " correct after training"
-            evaluate_examples(dev_xs,dev_ys, dev_seq_lens)
+                    pred[ex_idx]=pred_this_instance
+                    
+                    if test_exs!=-1:
+                        test_exs[ex_idx].label=pred_this_instance
+                accuracy = correct*1.0/len(ys)
+                if print_acc:
+                    print repr(correct) + "/" + repr(len(ys)) + " correct after training"
+                    print repr(accuracy) + " correct after training"
+                
+                
+                return test_exs, accuracy
+            _,accuracy = evaluate_examples(dev_xs,dev_ys, dev_seq_lens, True)
+            test_exs_predicted,_ = evaluate_examples(test_xs,test_ys, test_seq_lens, False, test_exs)
+            
+            write_sentiment_examples(test_exs_predicted, "./"+file_desc+"_e"+str(i)+"_a"+str(round(accuracy,3))+".output.txt", word_vectors.word_indexer)
         stop = timeit.default_timer()
         print "Total Time:" + str(stop-start)
+    return test_exs_predicted
