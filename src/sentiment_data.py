@@ -84,6 +84,11 @@ class WordEmbeddings:
             return self.vectors[word_idx]
         else:
             return self.vectors[word_indexer.get_index("UNK")]
+    def get_embedding_from_idx(self, word_idx):
+        if word_idx != -1:
+            return self.vectors[word_idx]
+        else:
+            return self.vectors[word_indexer.get_index("UNK")]
 
 
 # Loads the given embeddings (ASCII-formatted) into a WordEmbeddings object. Augments this with an UNK embedding
